@@ -3,6 +3,7 @@ from datetime import datetime
 import sys
 import git
 import os
+import numpy as np
 
 def main():
     try:
@@ -126,46 +127,85 @@ def main():
         print(f"Lines added: {sum(lines_added_list)}, Lines removed: {sum(lines_removed_list)}")
         print(f"MB added: {sum(mb_added_list):.2f}, MB removed: {sum(mb_removed_list):.2f}")
         
+        # Calculate cumulative changes
+        cumulative_lines_added = np.cumsum(lines_added_list)
+        cumulative_lines_removed = np.cumsum(lines_removed_list)
+        cumulative_mb_added = np.cumsum(mb_added_list)
+        cumulative_mb_removed = np.cumsum(mb_removed_list)
+        
+        # Calculate net diff per commit
+        net_lines = [a - r for a, r in zip(lines_added_list, lines_removed_list)]
+        net_mb = [a - r for a, r in zip(mb_added_list, mb_removed_list)]
+        
         # Convert timestamps to datetime objects for plotting
         dates = [datetime.fromtimestamp(t) for t in timestamps]
         
-        # Create the plots
-        fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 8))
+        # Create the plots - 2x2 grid
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
         
-        # Plot 1: Lines added and removed
-        ax1.plot(dates, lines_added_list, label='Lines Added', color='green', marker='o')
-        ax1.plot(dates, lines_removed_list, label='Lines Removed', color='red', marker='x')
-        ax1.set_ylabel('Lines')
-        ax1.set_title('Line Changes Over Time')
+        # Plot 1: Cumulative lines added/removed over time
+        ax1.plot(dates, cumulative_lines_added, label='Cumulative Lines Added', color='darkgreen')
+        ax1.plot(dates, cumulative_lines_removed, label='Cumulative Lines Removed', color='darkred')
+        ax1.fill_between(dates, cumulative_lines_added, alpha=0.3, color='green')
+        ax1.fill_between(dates, cumulative_lines_removed, alpha=0.3, color='red')
+        ax1.set_ylabel('Cumulative Lines')
+        ax1.set_title('Cumulative Line Changes')
         ax1.legend()
         ax1.grid(True)
         
-        # Add some padding to make sure all points are visible
-        if len(dates) > 1:
-            ax1.margins(0.05)
-        
-        # Plot 2: MB added and removed
-        ax2.plot(dates, mb_added_list, label='MB Added', color='blue', marker='o')
-        ax2.plot(dates, mb_removed_list, label='MB Removed', color='orange', marker='x')
-        ax2.set_ylabel('MB')
-        ax2.set_xlabel('Time')
-        ax2.set_title('Size Changes Over Time')
+        # Plot 2: Lines added/removed per commit
+        ax2.bar([d.strftime('%Y-%m-%d %H:%M') for d in dates], lines_added_list, label='Lines Added', color='green', alpha=0.7)
+        ax2.bar([d.strftime('%Y-%m-%d %H:%M') for d in dates], [-r for r in lines_removed_list], label='Lines Removed', color='red', alpha=0.7)
+        ax2.set_ylabel('Lines per Commit')
+        ax2.set_title('Line Changes per Commit')
         ax2.legend()
         ax2.grid(True)
         
-        # Add some padding to make sure all points are visible
-        if len(dates) > 1:
-            ax2.margins(0.05)
+        # If we have multiple commits, make the x-axis more readable
+        if len(dates) > 5:
+            ax2.set_xticklabels([])
+        elif len(dates) > 1:
+            plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            
+        # Plot 3: Cumulative MB added/removed over time
+        ax3.plot(dates, cumulative_mb_added, label='Cumulative MB Added', color='darkblue')
+        ax3.plot(dates, cumulative_mb_removed, label='Cumulative MB Removed', color='darkorange')
+        ax3.fill_between(dates, cumulative_mb_added, alpha=0.3, color='blue')
+        ax3.fill_between(dates, cumulative_mb_removed, alpha=0.3, color='orange')
+        ax3.set_ylabel('Cumulative MB')
+        ax3.set_title('Cumulative Size Changes')
+        ax3.legend()
+        ax3.grid(True)
+        
+        # Plot 4: Net change per commit (added - removed)
+        bars4 = ax4.bar([d.strftime('%Y-%m-%d %H:%M') for d in dates], net_lines, label='Net Lines', color=['green' if x >= 0 else 'red' for x in net_lines], alpha=0.7)
+        ax4_twin = ax4.twinx()
+        line4 = ax4_twin.plot(range(len(dates)), net_mb, label='Net MB', color='blue', marker='o', linestyle='-')
+        ax4.set_ylabel('Net Lines per Commit')
+        ax4_twin.set_ylabel('Net MB per Commit')
+        ax4.set_title('Net Changes per Commit')
+        
+        # Combine legends for both y-axes
+        lines, labels = ax4.get_legend_handles_labels()
+        lines2, labels2 = ax4_twin.get_legend_handles_labels()
+        ax4.legend(lines + lines2, labels + labels2, loc='upper left')
+        ax4.grid(True)
+        
+        # If we have multiple commits, make the x-axis more readable
+        if len(dates) > 5:
+            ax4.set_xticklabels([])
+        elif len(dates) > 1:
+            plt.setp(ax4.xaxis.get_majorticklabels(), rotation=45, ha='right')
             
         # Adjust layout
         plt.tight_layout()
         
-        # Format x-axis date labels if we have multiple data points
+        # Format x-axis date labels
         if len(dates) > 1:
             fig.autofmt_xdate()
         
         # Add a title
-        plt.suptitle('Git Repository Changes Over Time', fontsize=16, y=1.02)
+        plt.suptitle('Git Repository Changes Analysis', fontsize=16, y=0.98)
         
         # Display the plot
         plt.show()
