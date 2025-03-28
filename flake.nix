@@ -9,14 +9,15 @@
       let
         pkgs = import nixpkgs { inherit system; };
         pythonEnv = pkgs.python3.withPackages (ps: with ps; [
-          matplotlib
+          bokeh
           gitpython
+          numpy
         ]);
       in
       {
         packages.gitblow = pkgs.stdenv.mkDerivation rec {
           pname = "gitblow";
-          version = "0.0.2";
+          version = "0.0.3";
           src = ./.;
 
           nativeBuildInputs = [ pkgs.makeWrapper ];
