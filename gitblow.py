@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sys
 import git
 import os
@@ -6,15 +7,21 @@ import argparse
 import tempfile
 import numpy as np
 import time
+import pickle
+import hashlib
 from datetime import datetime, timedelta
-from bokeh.plotting import figure, show
-from bokeh.layouts import column, row
-from bokeh.models import ColumnDataSource, HoverTool, Range1d, Slider, DateRangeSlider, CustomJS, Panel, Tabs, CheckboxGroup
-from bokeh.palettes import Viridis256
-from bokeh.io import output_file, reset_output
+from bokeh.plotting import figure, show, output_file
+from bokeh.layouts import column, row, layout
+from bokeh.models import ColumnDataSource, HoverTool, Range1d, Slider, DateRangeSlider, CustomJS, Panel, Tabs, CheckboxGroup, LinearAxis, Span, Label, Text
+from bokeh.palettes import Viridis256, Category10
+from bokeh.io import reset_output
+
+# Global variable for command line arguments
+args = None
 
 def analyze_repository(repo_path, max_commits=None, use_cache=True):
     """Analyze a git repository and create visualization."""
+    global args
     try:
         start_time = time.time()
         
@@ -52,7 +59,6 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
             if os.path.exists(cache_file):
                 try:
                     print(f"Found cached analysis, loading from {cache_file}")
-                    import pickle
                     with open(cache_file, 'rb') as f:
                         cache_data = pickle.load(f)
                         # Verify it's the same repository
@@ -243,7 +249,6 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
             # Save to cache if enabled
             if use_cache and cache_dir:
                 try:
-                    import pickle
                     cache_data = {
                         'repo_hash': repo_hash,
                         'timestamp': time.time(),
@@ -296,8 +301,32 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
         # Determine if we should use adaptive visualization based on commit count
         use_adaptive_viz = len(dates) > 50
         
+        # Get repository name for the output file
+        repo_name = "repository"
+        
+        # Parse repository name from URL or path
+        if args and hasattr(args, 'repo_url') and args.repo_url:
+            # Extract repo name from URL
+            url_parts = args.repo_url.rstrip('/').split('/')
+            if url_parts:
+                repo_name = url_parts[-1]
+                if repo_name.endswith('.git'):
+                    repo_name = repo_name[:-4]
+        else:
+            # Extract from local path
+            if '/' in repo_path:
+                repo_name = os.path.basename(repo_path.rstrip('/'))
+            else:
+                repo_name = repo_path
+            
+        # Remove .git extension if present
+        if repo_name.endswith('.git'):
+            repo_name = repo_name[:-4]
+            
         # Create an HTML file to display the visualization in a browser
-        output_file(f"gitblow_visualization_{repo.git.rev_parse('HEAD')}.html", title=f"Git Repository Analysis - {num_commits} commits")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"gitblow_{repo_name}_{timestamp}.html"
+        output_file(output_filename, title=f"Git Repository Analysis - {num_commits} commits")
         
         # Create ColumnDataSources for Bokeh
         source_cumulative = ColumnDataSource(data=dict(
@@ -406,14 +435,26 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
                 else:
                     bar_width_ms = day_width_ms / 3   # 8 hours for smaller repos
             else:
-                # For smaller repos, calculate based on commit density
-                time_span = (latest_date - earliest_date).total_seconds()
-                if len(dates) > 10 and time_span < 86400 * 30:  # If commits are within a month
-                    bar_width_ms = min(43200000, time_span * 1000 / (len(dates) * 3))  # Max 12 hours
-                else:
-                    bar_width_ms = min(43200000, time_span * 1000 / (len(dates) * 2))
+                # For smaller repos, calculate based on commit density and ensure bars don't overlap
+                time_span = (latest_date - earliest_date).total_seconds() * 1000  # convert to ms
+                
+                # If all commits are on same day or very close, create artificial spread
+                if time_span < 86400000:  # less than a day
+                    time_span = max(86400000, time_span * 3)  # at least one day spread
+                
+                # Maximum bar width should ensure no overlap
+                # Calculate width based on time span and number of commits with a spacing factor
+                spacing_factor = 12  # Higher means more space between bars (increased from 8)
+                calculated_width = time_span / (len(dates) * spacing_factor)
+                
+                # Cap the maximum width to prevent bars from being too fat
+                max_width_ms = 300000  # 5 minutes max width (reduced from 15 minutes)
+                min_width_ms = 30000   # 30 seconds min width (reduced from 1 minute)
+                
+                bar_width_ms = max(min_width_ms, min(calculated_width, max_width_ms))
         else:
-            bar_width_ms = 43200000  # 12 hours for single commit repos
+            # For single commit repos, use a sensible default
+            bar_width_ms = 3600000  # 1 hour
         
         # Common parameters for all plots
         TOOLS = ["box_zoom", "reset", "save", "pan", "wheel_zoom"]
@@ -593,11 +634,20 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
                        height=400, width=1000,
                        tools=TOOLS + [hover_tool])
             
-            # Add bars for lines added/removed with computed width
-            p2.vbar(x='dates', top='lines_added', source=source_per_commit, 
-                   width=bar_width_ms, color='green', alpha=0.7, legend_label="Lines Added")
-            p2.vbar(x='dates', top='lines_removed', source=source_per_commit, 
-                   width=bar_width_ms, color='red', alpha=0.7, legend_label="Lines Removed")
+            # Add scatter points with hover for lines added/removed
+            p2.scatter('dates', 'lines_added', source=source_per_commit, 
+                     size=8, color='green', alpha=0.7, legend_label="Lines Added")
+            p2.scatter('dates', 'lines_removed', source=source_per_commit, 
+                     size=8, color='red', alpha=0.7, legend_label="Lines Removed")
+            
+            # Add stems to connect points to baseline
+            for i, (date, value) in enumerate(zip(dates, lines_added_list)):
+                if value > 0:  # Only draw stems for visible points
+                    p2.line([date, date], [0, value], line_color='green', line_width=1, alpha=0.5)
+            
+            for i, (date, value) in enumerate(zip(dates, neg_lines_removed)):
+                if value < 0:  # Only draw stems for visible points
+                    p2.line([date, date], [0, value], line_color='red', line_width=1, alpha=0.5)
             
             p2.legend.location = "top_left"
             p2.legend.click_policy = "hide"
@@ -632,9 +682,13 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
                        height=400, width=1000,
                        tools=TOOLS + [hover_tool_net])
             
-            # Add bars for net changes with computed width
-            p4.vbar(x='dates', top='net_lines', source=source_net, 
-                   width=bar_width_ms, color='color', alpha=0.7, legend_label="Net Lines")
+            # Add scatter and stems for net changes
+            p4.scatter('dates', 'net_lines', source=source_net, 
+                     size=8, color='color', alpha=0.7, legend_label="Net Lines")
+            
+            # Add stems for net lines
+            for i, (date, value, color) in enumerate(zip(dates, net_lines, colors)):
+                p4.line([date, date], [0, value], line_color=color, line_width=1, alpha=0.5)
             
             # Add MB scatter plot with smaller markers
             p4.scatter(x='dates', y='net_mb', source=source_net, size=6,
@@ -671,7 +725,7 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
             # Show the visualization
             show(layout)
         
-        print(f"Visualization saved to gitblow_visualization.html")
+        print(f"Visualization saved to {output_filename}")
         return 0
         
     except Exception as e:
@@ -680,6 +734,7 @@ def analyze_repository(repo_path, max_commits=None, use_cache=True):
 
 def main():
     """Main function to parse arguments and run the analysis."""
+    global args
     parser = argparse.ArgumentParser(description='Analyze Git repository changes over time.')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--repo-url', '-u', help='URL of the Git repository to analyze (http/https/ssh)')

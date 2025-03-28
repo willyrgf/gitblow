@@ -2,12 +2,6 @@
 
 GitBlow is a simply script that analyzes your Git repository history and present its progression.
 
-The tool will analyze all commits in the repository, log it in stdout and display four graphs:
-1. Cumulative Line Changes over time
-2. Line Changes per commit
-3. Cumulative Size Changes over time
-4. Net Changes per commit (lines and MB)
-
 
 ## Installation
 
@@ -33,7 +27,7 @@ cd gitblow
 
 2. Install dependencies:
 ```bash
-pip install matplotlib gitpython numpy
+pip install bokeh gitpython numpy
 ```
 
 3. Run the script:
@@ -48,3 +42,43 @@ Navigate to any Git repository and run:
 ```bash
 gitblow
 ```
+
+Or analyze a specific local repository:
+
+```bash
+gitblow --repo-path /path/to/repository
+# or with short option
+gitblow -p /path/to/repository
+```
+
+You can also analyze a remote repository without cloning it manually:
+
+```bash
+gitblow --repo-url https://github.com/user/repo.git
+# or with short option
+gitblow -u https://github.com/user/repo.git
+```
+
+For large repositories, you can limit the number of commits to analyze:
+
+```bash
+gitblow --max-commits 100
+# or with short option
+gitblow -m 100
+```
+
+## Visualization Features
+
+GitBlow provides an interactive HTML visualization that adapts based on the size of your repository:
+
+1. **Adaptive Layout**: For repositories with many commits (>50), GitBlow automatically switches to a scatter plot visualization with connecting stems to prevent visual clutter.
+
+2. **Time Range Selection**: All visualizations include a date range slider that allows you to focus on specific time periods in your repository history.
+
+3. **Interactive Tooltips**: Hover over any data point to see detailed information about the commit, including hash, author, message, and exact numbers.
+
+4. **Repository-named Output**: Visualization files are automatically named with the repository name and timestamp for easy identification.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
